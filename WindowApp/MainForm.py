@@ -5,6 +5,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtWidgets import QApplication, QWidget, QMainWindow
 from WindowApp.MainWindow import Ui_MainWindow
 from WindowApp.SettingForm import SettingForm
+from PyQt5.QtCore import *
 
 
 class MainForm(QMainWindow, Ui_MainWindow):
@@ -12,6 +13,7 @@ class MainForm(QMainWindow, Ui_MainWindow):
         super(MainForm,self).__init__()
         self.setupUi(self)
         self.settingForm = SettingForm()
+        self.settingForm.setWindowModality(Qt.ApplicationModal)
 
 
 if __name__ == '__main__':
