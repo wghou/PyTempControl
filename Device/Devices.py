@@ -4,8 +4,10 @@
 import threading
 import time
 from enum import Enum, unique
+from PyQt5 import QtCore
 from transitions import Machine
 from Utils.TypeAssert import typeassert
+from Device.DevivceParameter import StatesEnum, TemptPointStruct, ThresholdParamStruct
 from Device.TemptDevice import TemptDevice, TemptProtocol
 from Device.RelayDevice import RelayProtocol, RelayDevice
 
@@ -19,9 +21,37 @@ class Devices(object):
                 'suspendAutoControl', 'finishAll', 'forceStop', 'uindefinedOccur']
 
     def __init__(self, name):
+        # tempt parameters
+        # relay device
+        self.ryDevice = RelayDevice()
+        # temperature control device
+        self.tpDevice = TemptDevice()
+        # temperature list
+        self.temptPointList = None
+        # current temperature control state
+        self.currentTemptPointState = TemptPointStruct()
+        # threading lock
+        self.stepLocker = threading.Lock()
+        # some parameters
+        self.thrParam = ThresholdParamStruct()
+
+        # state machine
         self.name = name
         self._machine = None
         self._init_machine()
+
+    @typeassert(cmd=RelayProtocol.CmdRelay, st=bool)
+    def set_rystatus(self, cmd, st):
+        from Device.RelayDevice import RelayComThread
+        self.ryDevice.ryStatusToSet[cmd] = st
+        ryThread = RelayComThread(self.ryDevice)
+        ryThread.finishSignal.connect(self.set_rystatus_end)
+        ryThread.start()
+
+    def set_rystatus_end(self, err):
+        print(err)
+
+
 
     def _init_machine(self):
         self._machine = Machine(model=self, states=Devices.States, initial=Devices.States[7], ignore_invalid_triggers=True)

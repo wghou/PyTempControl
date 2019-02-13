@@ -2,7 +2,7 @@
 
 
 import serial
-from enum import Enum, unique
+from enum import IntEnum, unique
 from Utils.TypeAssert import typeassert
 import time
 
@@ -48,7 +48,7 @@ class TemptProtocol(object):
             self.available = False
 
     @unique
-    class CmdTempt(Enum):
+    class CmdTempt(IntEnum):
         """\
         Command used to read/write parameters from T-C board.
         """
@@ -63,7 +63,7 @@ class TemptProtocol(object):
         PowerShow = 8
 
     @unique
-    class ErrTempt(Enum):
+    class ErrTempt(IntEnum):
         """\
         Error when read/write parameters from T-C board.
         """

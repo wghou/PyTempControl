@@ -1,5 +1,5 @@
 import serial
-from enum import Enum, unique
+from enum import IntEnum, unique
 from Utils.TypeAssert import typeassert
 import time
 import operator
@@ -31,8 +31,10 @@ class RelayProtocol(object):
         self.data = None
         # create and connect a serial port with port name and baud rate
         # if failed, set the indicator self.available False
-        self._sPort = serial.Serial(portName, baudRate)
+        self._sPort = serial.Serial()
         try:
+            self._sPort.baudrate = baudRate
+            self._sPort.name = portName
             self._sPort.open()
             if self._sPort.isOpen():
                 self.available = True
@@ -43,7 +45,7 @@ class RelayProtocol(object):
             self.available = False
 
     @unique
-    class CmdRelay(Enum):
+    class CmdRelay(IntEnum):
         """\
         Command used to read/set the relay device.
         """
@@ -53,7 +55,7 @@ class RelayProtocol(object):
         Circle = 3
 
     @unique
-    class ErrRelay(Enum):
+    class ErrRelay(IntEnum):
         """\
         Error when read/set relay device status
         """
@@ -78,7 +80,7 @@ class RelayProtocol(object):
             pass
         # reset the serial port
         try:
-            self._sPort.port = portName
+            self._sPort.name = portName
             self._sPort.baudrate = baudRate
             self._sPort.open()
             if self._sPort.isOpen():
@@ -89,6 +91,7 @@ class RelayProtocol(object):
                 return True
         except serial.SerialException as e:
             self.available = False
+            print('Port is un available')
             return False
         return self.available
 

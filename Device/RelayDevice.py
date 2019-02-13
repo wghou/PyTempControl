@@ -3,6 +3,7 @@
 
 import threading
 import time
+from PyQt5 import QtCore
 from Utils.TypeAssert import typeassert
 from Device.RelayProtocol import RelayProtocol
 
@@ -70,5 +71,39 @@ class RelayDevice(object):
         return err
 
 
+class RelayComThread(QtCore.QThread):
+    """
+    communicate with relay device in a new thread
+    after finish, emit a signal with parameter RelayProtocol.ErrRelay
+    """
+    # finish signal
+    finishSignal = QtCore.pyqtSignal(RelayProtocol.ErrRelay)
+
+    @typeassert(rydevice=RelayDevice)
+    def __init__(self, rydevice, parent=None):
+        print('init th')
+        super(RelayComThread, self).__init__(parent)
+        self._rydevice = rydevice
+
+    def run(self):
+        print('run')
+        err = RelayProtocol.ErrRelay.NoError
+        err = self._rydevice.updatestatustodevice()
+        self.finishSignal.emit(err)
+
+
+# test
+def _set_rystatus_end(self, err):
+    print('end')
+    print(err)
+
+import os
 if __name__ == '__main__':
-    pass
+    dev = RelayDevice()
+    dev.setdeviceportname('COM0')
+    dev.ryStatusToSet[RelayProtocol.CmdRelay.Circle] = True
+    ryThread = RelayComThread(dev)
+    ryThread.finishSignal.connect(_set_rystatus_end)
+    print('start')
+    ryThread.start()
+    os.system("pause")
