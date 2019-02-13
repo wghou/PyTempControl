@@ -2,7 +2,7 @@
 
 
 
-from enum import IntEnum, unique
+from enum import IntEnum
 
 
 
@@ -23,7 +23,7 @@ class TemptPointStruct(object):
         # the position of this tpPoint in the list
         self.temptPointIndex = 0
         # whether finished of this tpPoint
-        self.finished = False
+        self.finished = True
         # the parameters of T-C board in this tpPoint
         self.paramM = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         # the flow state
@@ -55,6 +55,7 @@ class ThresholdParamStruct(object):
         self.temptMinValue = -2.0
         self.sort = 'descend'
         self.shutDownComputer = False
+        self.tpUpdateInterval = 4.0
         #
         self.sunCoolAndCircleShutdownThr = 36.0
         self.temptDownCoolFShoutDownDevision = 12.5

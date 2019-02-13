@@ -4,6 +4,8 @@ from PyQt5.QtWidgets import QApplication, QWidget, QMainWindow
 from WindowApp.MainForm import MainForm
 
 
+
+
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     w = MainForm()
