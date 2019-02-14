@@ -10,7 +10,7 @@ class SettingForm(QDialog, Ui_Dialog):
     def __init__(self):
         super(SettingForm,self).__init__()
         self.setupUi(self)
-
+        self.pushButton_return.clicked.connect(lambda: self.close())
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

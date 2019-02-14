@@ -35,7 +35,7 @@ class Devices(object):
     tpErrorOccurTickSignal = QtCore.pyqtSignal(list)
 
     @typeassert(name=str)
-    def __init__(self, name):
+    def __init__(self, name='Device'):
         # tempt parameters
         # relay device
         self.ryDevice = RelayDevice()
