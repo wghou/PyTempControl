@@ -378,7 +378,8 @@ class Devices(QtCore.QObject):
         # read temperature and power value
         errT, valT = self.tpDevice.get_temptshow(True)
         errP, valP = self.tpDevice.get_powershow(True)
-        self.tpUpdateTickSignal.emit([errT, valT, errP, valP])
+        errF, fluc = self.tpDevice.get_fluc_cnt_orless(int(5000/self.thrParam.tpUpdateInterval))
+        self.tpUpdateTickSignal.emit([errT, valT, errP, valP, errF, fluc])
         # state count
         # bug : wghou 20190213 overflow
         self.currentTemptPointState.stateCount += 1
