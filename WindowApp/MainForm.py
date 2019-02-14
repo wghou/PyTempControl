@@ -18,7 +18,11 @@ class MainForm(QMainWindow, Ui_MainWindow):
         self.settingForm.setWindowModality(Qt.ApplicationModal)
         self.pushButton_auto.clicked.connect(self._clicked_auto)
         self.pushButton_param.clicked.connect(self._clicked_param)
+        self.pushButton_exit.clicked.connect(self._exit_window)
 
+        #
+        self.devAll.tpUpdateTickSignal.connect(self._update_tpshow)
+        #
         self._set_device()
 
     def _clicked_auto(self):
@@ -30,11 +34,20 @@ class MainForm(QMainWindow, Ui_MainWindow):
     def _set_device(self):
         self.devAll.start_timer()
 
+    def _exit_window(self):
+        self.close()
+
+    def _update_tpshow(self, ls):
+        _translate = QtCore.QCoreApplication.translate
+        if len(ls) != 4:
+            return
+        else:
+            self.label_tempt.setText(_translate("MainWindow", "%.4f" % ls[1]))
+            self.label_power.setText(_translate("MainWindow", "%.3f" % ls[3]))
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     w = MainForm()
     w.show()
-    w.settingForm.show()
     sys.exit(app.exec_())
 

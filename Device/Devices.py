@@ -2,7 +2,6 @@
 
 
 import threading
-import time
 from PyQt5 import QtCore
 from transitions import Machine
 from Utils.TypeAssert import typeassert
@@ -11,7 +10,7 @@ from Device.TemptDevice import TemptDevice, TemptProtocol
 from Device.RelayDevice import RelayProtocol, RelayDevice
 
 
-class Devices(object):
+class Devices(QtCore.QObject):
 
     States = ['start', 'temptUp', 'temptDown', 'control', 'stable',
               'measure', 'stop', 'idle', 'undefined']
@@ -35,7 +34,8 @@ class Devices(object):
     tpErrorOccurTickSignal = QtCore.pyqtSignal(list)
 
     @typeassert(name=str)
-    def __init__(self, name='Device'):
+    def __init__(self, name='Device', parent=None):
+        super(Devices, self).__init__(parent)
         # tempt parameters
         # relay device
         self.ryDevice = RelayDevice()
@@ -57,7 +57,8 @@ class Devices(object):
         self._machine = None
         self._init_machine()
 
-        self._timer = threading.Timer(self.thrParam.tpUpdateInterval, self._timer_tick, [self.thrParam.tpUpdateInterval])
+        self._timer = QtCore.QTimer(self)
+        self._timer.timeout.connect(self._timer_tick)
 
     def _init_machine(self):
         self._machine = Machine(model=self, states=Devices.States, initial=Devices.States[7], ignore_invalid_triggers=True)
@@ -135,9 +136,6 @@ class Devices(object):
 
         # force to stop
         self._machine.add_transition(trigger='forceStop', source='*', dest='stop')
-
-    def start_timer(self):
-        self._timer.start()
 
     # States idle
     def _enter_idle(self):
@@ -284,7 +282,7 @@ class Devices(object):
         # error check
 
         # if the fluctuation satisfy the criteria, then go to stable
-        if self.tpDevice.check_fluc_cnt(self.thrParam.steadyTimeSec/self.thrParam.tpUpdateInterval,
+        if self.tpDevice.check_fluc_cnt(self.thrParam.steadyTimeSec * 1000 /self.thrParam.tpUpdateInterval,
                                         self.thrParam.flucValue):
             self._machine.achieveSteady()
 
@@ -313,8 +311,8 @@ class Devices(object):
         # enter this state more than xx time
         # then check the fluctuation again
         if self.currentTemptPointState.stateCount > \
-                self.thrParam.bridgeSteadyTimeSec/self.thrParam.tpUpdateInterval and\
-                self.tpDevice.check_fluc_cnt(self.thrParam.steadyTimeSec /
+                self.thrParam.bridgeSteadyTimeSec * 1000 /self.thrParam.tpUpdateInterval and\
+                self.tpDevice.check_fluc_cnt(self.thrParam.steadyTimeSec * 1000  /
                                              self.thrParam.tpUpdateInterval,self.thrParam.flucValue):
             self._machine.startMeasure()
 
@@ -368,31 +366,22 @@ class Devices(object):
         print('stop tick: %d' % sec)
         pass
 
-    @typeassert(sec=float)
-    def _timer_tick(self, sec):
+    def start_timer(self):
+        self._timer.start(4000)
+
+    def _timer_tick(self):
         """
         device timer tick function
-        :param tm: timer interval
         :return:
         """
+        print('_timer_tick')
         # read temperature and power value
-        errT, valT = self.tpDevice.gettempshow(True)
-        errP, valP = self.tpDevice.getpowershow(True)
+        errT, valT = self.tpDevice.get_temptshow(True)
+        errP, valP = self.tpDevice.get_powershow(True)
         self.tpUpdateTickSignal.emit([errT, valT, errP, valP])
         # state count
         # bug : wghou 20190213 overflow
         self.currentTemptPointState.stateCount += 1
-        # state transition
-        if __debug__:
-            self._machine.internal(sec)
-            #
-            self._timer = threading.Timer(self.thrParam.tpUpdateInterval, self._timer_tick, [self.thrParam.tpUpdateInterval])
-            self._timer.start()
-        else:
-            self._timer = threading.Timer(self.thrParam.tpUpdateInterval, self._timer_tick, [self.thrParam.tpUpdateInterval])
-            self._timer.start()
-            #
-            self._machine.internal(sec * 1000)
 
 
 if __name__ == '__main__':

@@ -12,7 +12,7 @@ class RelayDevice(object):
     def __init__(self):
         self._ryDeviceName = None
         self._ryPortName = None
-        self._ryDeviceProtocol = None
+        self._ryDeviceProtocol = RelayProtocol()
         self.ryStatus = [True, False, False, False,
                          False, False, False, False,
                          False, False, False, False,
@@ -26,28 +26,25 @@ class RelayDevice(object):
         self._errDict = {}
         self.clear_err_dict()
 
-    @typeassert(portName=str)
-    def setdeviceportname(self, portName):
+    @typeassert(portname=str)
+    def reset_port_name(self, portname):
         """\
         set the port name and check whether the serial port is available
         :param portName: port name
         :return: return True if success
         """
-        confOk = False
         # if the serial port is not initialized, then create a new RelayProtocol()
         with self._ryLocker:
-            if self._ryDeviceProtocol is None:
-                self._ryDeviceProtocol = RelayProtocol(portName, 9600)
             # set the port name and baud rate
-            confOk = self._ryDeviceProtocol.setport(portName, 9600)
+            confOk = self._ryDeviceProtocol.set_port(portname, 9600)
             # save the port name if success
             if confOk:
-                self._ryPortName = portName
+                self._ryPortName = portname
             # return the result
             return confOk
 
     @typeassert(stToSet=list, errCnt=bool)
-    def updatestatustodevice(self, stToSet, errCnt=False):
+    def update_status_to_device(self, stToSet, errCnt=False):
         """\
         update the relay status to the relay device
         every time we wanna set relay status, we write the relay status in the ryStatusToSet.
@@ -67,12 +64,12 @@ class RelayDevice(object):
             # for each cmd in the RelayProtocol.CmdRelay, check if the relay status need to be update
             # if the ryStatus[cmd] != ryStatusToSet[cmd], it means that the relay status need to be update
             for cmd in RelayProtocol.CmdRelay:
-                if self.ryStatus[cmd] == self.ryStatusToSet[cmd]:
+                if self.ryStatus[cmd] == self._ryStatusToSet[cmd]:
                     continue
-                err = self._ryDeviceProtocol.writerelaystatus(cmd, self.ryStatusToSet[cmd])
+                err = self._ryDeviceProtocol.write_relay_status(cmd, self._ryStatusToSet[cmd])
                 time.sleep(20/1000)
                 if err == RelayProtocol.ErrRelay.NoError:
-                    self.ryStatus[cmd] = self.ryStatusToSet[cmd]
+                    self.ryStatus[cmd] = self._ryStatusToSet[cmd]
                 else:
                     break
             if errCnt and err != RelayProtocol.ErrRelay.NoError:
@@ -110,7 +107,15 @@ class RelayComThread(QtCore.QThread):
         self.start()
 
     def run(self):
-        err, ryst = self._rydevice.updatestatustodevice(self._stToSet, self._errCnt)
+        err, ryst = self._rydevice.update_status_to_device(self._stToSet, self._errCnt)
         self.finishSignal.emit([err, ryst])
 
 
+if __name__ == '__main__':
+    ryDevice = RelayDevice()
+    conf = ryDevice.reset_port_name('COM2')
+    print('device set port name: %s' % conf)
+    st = [True, False, True, True]
+    err, rt = ryDevice.update_status_to_device(st, True)
+    print('update relay status to the device: %s   err: %s' % (rt, err))
+    print('error dict: %s' % ryDevice.err_dict())

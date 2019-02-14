@@ -31,7 +31,6 @@ class TemptProtocol(object):
                 then set the self.available False
                 """
         self.available = False
-        self.data = None
         # create and connect a serial port with port name and baud rate
         # if failed, set the indicator self.available False
         self._sPort = serial.Serial()
@@ -65,7 +64,7 @@ class TemptProtocol(object):
         CodeError = 6
 
     @typeassert(portname=str, baudrate=int)
-    def setPort(self, portname, baudrate=2400):
+    def set_port(self, portname, baudrate=2400):
         """\
         reset the port name and baud rate, no matter the serial port is available or unavailable
         :param portname: the port name
@@ -90,7 +89,7 @@ class TemptProtocol(object):
         return self.available
 
     @typeassert(cmd=CmdTempt, val=(int, float))
-    def sendData(self, cmd, val):
+    def send_data(self, cmd, val):
         """\
         send data (val) to the T-C board according to the cmd
         :param cmd: cmd which indicates the parameter
@@ -107,7 +106,7 @@ class TemptProtocol(object):
         if _cmdRW[cmd] != 'w':
             return self.ErrTempt.CodeError
         # construct the command
-        command = self._constructCommand(cmd, val, True)
+        command = self._construct_command(cmd, val, True)
         try:
             if not self._sPort.isOpen():
                 self._sPort.open()
@@ -125,10 +124,10 @@ class TemptProtocol(object):
                 pass
             return self.ErrTempt.ComError
         # check the data correction
-        return self._isErr(data.decode(encoding='utf-8'))
+        return self._is_err(data.decode(encoding='utf-8'))
 
     @typeassert(cmd=CmdTempt)
-    def readData(self, cmd):
+    def read_data(self, cmd):
         """\
         read data (val) from the T-C board according to the cmd
         :param cmd: command indicates the parameter read from the T-C board
@@ -140,7 +139,7 @@ class TemptProtocol(object):
         if not self.available:
             return self.ErrTempt.ComError, val
         # construct the command
-        command = self._constructCommand(cmd, 0.0, False)
+        command = self._construct_command(cmd, 0.0, False)
         try:
             if not self._sPort.isOpen():
                 self._sPort.open()
@@ -158,20 +157,23 @@ class TemptProtocol(object):
                 pass
             return self.ErrTempt.ComError, val
         # check the data correction
-        err = self._isErr(data.decode(encoding='utf-8'))
+        if len(data) == 0:
+            return self.ErrTempt.ComError, val
+        err = self._is_err(data.decode(encoding='utf-8'))
         if err != self.ErrTempt.NoError:
             return err, val
         # parse the parameter value from the string returned
         else:
             try:
-                val = float(data[5:])
+                val = float(data[5:-2])
             except Exception as e:
                 val = 0.0
+                print(e)
                 return self.ErrTempt.BCCError, val
             return self.ErrTempt.NoError, val
 
     @typeassert(data=str)
-    def _isErr(self, data):
+    def _is_err(self, data):
         """\
         check if the data returned from the T-C board contains error information
         :param data: the data string returned from the T-C board
@@ -187,7 +189,7 @@ class TemptProtocol(object):
         return err
 
     @typeassert(cmdName=CmdTempt, val=(int,float), W_R=bool)
-    def _constructCommand(self, cmdName, val, W_R):
+    def _construct_command(self, cmdName, val, W_R):
         """\
         construct the complete command through the cmdName and val
         :param cmdName: the abbreviate cmd name
@@ -202,18 +204,18 @@ class TemptProtocol(object):
             command += _cmdWords[cmdName]
             command += '{0:{1}}'.format(val, _cmdFormats[cmdName])
             command += _cmdFinish
-            command += self._bccCal(command, False)
+            command += self._bcc_cal(command, False)
             command += _cmdEnd
         else:
             command += _cmdHead_R
             command += _cmdWords[cmdName]
             command += _cmdFinish
-            command += self._bccCal(command, False)
+            command += self._bcc_cal(command, False)
             command += _cmdEnd
         return command
 
     @typeassert(cmd=str, ifcal=bool)
-    def _bccCal(self, cmd, ifcal=False):
+    def _bcc_cal(self, cmd, ifcal=False):
         """\
         bcc value calculation
         :param cmd: the complete command string
@@ -228,7 +230,7 @@ class TemptProtocol(object):
         return bcc
 
     @typeassert(cmd=str, ifchk=bool)
-    def _checkBcc(self, cmd, ifchk=False):
+    def _check_bcc(self, cmd, ifchk=False):
         """\
         bcc correction check
         :param cmd: the complete command with bcc valued attached at the back
@@ -241,9 +243,9 @@ class TemptProtocol(object):
 
 if __name__ == '__main__':
     sPort = TemptProtocol()
-    suc = sPort.setPort('COM1')
+    suc = sPort.set_port('COM5')
     print('COM status: %s' % suc)
-    err, val = sPort.readData(TemptProtocol.CmdTempt.TempShow)
+    err, val = sPort.read_data(TemptProtocol.CmdTempt.TempShow)
     print("The tempShow is: %f and error information is: %s" % (val, err))
-    err = sPort.sendData(TemptProtocol.CmdTempt.Power, 10.0)
+    err = sPort.send_data(TemptProtocol.CmdTempt.Power, 10.0)
     print('The Power value %f is send to the T-C board, and the error information is: %s' % (10.0, err))

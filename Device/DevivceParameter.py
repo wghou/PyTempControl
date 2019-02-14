@@ -55,7 +55,7 @@ class ThresholdParamStruct(object):
         self.temptMinValue = -2.0
         self.sort = 'descend'
         self.shutDownComputer = False
-        self.tpUpdateInterval = 4.0
+        self.tpUpdateInterval = 4000
         #
         self.sunCoolAndCircleShutdownThr = 36.0
         self.temptDownCoolFShoutDownDevision = 12.5
