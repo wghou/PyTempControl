@@ -4,6 +4,7 @@
 import sys
 import threading
 import time
+from PyQt5 import QtCore
 from Utils.TypeAssert import typeassert
 from Device.TemptProtocol import TemptProtocol
 
@@ -13,15 +14,18 @@ class TemptDevice(object):
         self._tpDeviceName = None
         self._tpPortName = None
         self._tpDeviceProtocol = None
-        self.tpParam = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-        self.tpParamToSet = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-        self._tpParamFormat = ['.3f', '.3f', '.3f', '.0f', '.0f', '.0f', '.0f']
-        self.tpParamNames = ["设定值    ", "调整值    ", "超前调整值", "模糊系数  ", "比例系数  ", "积分系数  ", "功率系数  "]
+        self.tpParam = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        self.tpParamToSet = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        self._tpParamFormat = ('.3f', '.3f', '.3f', '.0f', '.0f', '.0f', '.0f')
+        self.tpParamNames = ("设定值    ", "调整值    ", "超前调整值", "模糊系数  ",
+                             "比例系数  ", "积分系数  ", "功率系数  ")
         self.tpPowerShow = 0.0
         self.temperatures = list()
         self._temptMaxLen = 1000
-        self.readTemptIntervalMsec = 1000
         self._tpLocker = threading.Lock()
+        # device error count
+        self._errDict = {}
+        self.clear_err_dict()
 
     @typeassert(portName=str)
     def setdeviceportname(self, portName):
@@ -65,15 +69,24 @@ class TemptDevice(object):
                 time.sleep(1)
         return err
 
-    def updateparamtodevice(self):
+    def updateparamtodevice(self, param, errCnt=False):
         """
         update the parameters from the PC to the T-C board
         first write the parameters from the PC to the self.tpParamToSet[]
         then call this function to write the parameter value through serial port
+        :param param: T-C board parameters gonna set
+        :param errCnt: indicate whether the error information be added into self._errDict
         :return: error information
         """
         err = TemptProtocol.ErrTempt.NoError
         with self._tpLocker:
+            # ensure that the formation of the parameter is correct
+            if len(param) != len(self.tpParamToSet):
+                if errCnt:
+                    self._errDict[TemptProtocol.ErrTempt.CodeError] += 1
+                return TemptProtocol.ErrTempt.CodeError
+            # copy the param to tpParamToSet
+            self.tpParamToSet = param
             for cmd in TemptProtocol.CmdTempt:
                 if cmd in (TemptProtocol.CmdTempt.TempShow, TemptProtocol.CmdTempt.PowerShow):
                     continue
@@ -84,13 +97,17 @@ class TemptDevice(object):
                     break
                 else:
                     self.tpParam[cmd] = self.tpParamToSet[cmd]
+                # count the error information
+                if errCnt and err != TemptProtocol.ErrTempt.NoError:
+                    self._errDict[err] += 1
         return err
 
-    def updateparamfromdevice(self):
+    def updateparamfromdevice(self, errCnt=False):
         """\
         update parameters form the T-C board to the PC
         ignore the PowerShow and TemptShow
-        :return: error information
+        :param errCnt: indicate whether the error information be added into self._errDict
+        :return: error information, self.tpParam
         """
         err = TemptProtocol.ErrTempt.NoError
         with self._tpLocker:
@@ -102,15 +119,17 @@ class TemptDevice(object):
                     break
                 else:
                     self.tpParam[cmd] = val
-        return err
+            # count the error information
+            if errCnt and err != TemptProtocol.ErrTempt.NoError:
+                self._errDict[err] += 1
+        return err, self.tpParam
 
-    def gettempshow(self):
+    def gettempshow(self, errCnt=False):
         """\
         get the temperatureShow from the T-C board
+        :param errCnt: indicate whether the error information be added into self._errDict
         :return: error, temptShow
         """
-        err = TemptProtocol.ErrTempt.NoError
-        val = 0.0
         with self._tpLocker:
             err, val = self._tpDeviceProtocol.readdata(TemptProtocol.CmdTempt.TempShow)
             if err == TemptProtocol.ErrTempt.NoError:
@@ -120,32 +139,37 @@ class TemptDevice(object):
                     val = self.temperatures[-1]
                 else:
                     val = 0.0
+            # count the error information
+            if errCnt and err != TemptProtocol.ErrTempt.NoError:
+                self._errDict[err] += 1
         return err, val
 
-    def getpowershow(self):
+    def getpowershow(self, errCnt=False):
         """\
         get the powerShow from the T-C board
+        :param errCnt: indicate whether the error information be added into self._errDict
         :return: error , powerShow
         """
-        err = TemptProtocol.ErrTempt.NoError
-        val = 0.0
         with self._tpLocker:
             err, val = self._tpDeviceProtocol.readdata(TemptProtocol.CmdTempt.PowerShow)
             if err == TemptProtocol.ErrTempt.NoError:
                 self.tpPowerShow = val
             else:
                 val = self.tpPowerShow
-            return err, val
+            # count the error information
+            if errCnt and err != TemptProtocol.ErrTempt.NoError:
+                self._errDict[err] += 1
+        return err, val
 
-    @typeassert(mSec=int, crt=float)
-    def checkflucmsec(self, mSec, crt):
+    @typeassert(cnt=int, crt=float)
+    def check_fluc_cnt(self, cnt, crt):
         """\
         check if the fluctuation with the mSec time space satisfies the criteria
-        :param mSec: time space
+        :param cnt: number of temperature value
         :param crt: fluctuation criteria
         :return: result if the fluctuation satisfy the criteria
         """
-        flucOk, fluc = self.getfluc(int(mSec/self.readTemptIntervalMsec))
+        flucOk, fluc = self.getfluc(cnt)
         if flucOk:
             return fluc < crt
         else:
@@ -208,7 +232,110 @@ class TemptDevice(object):
             del self.temperatures[0]
         self.temperatures.append(val)
 
+    def err_dict(self):
+        """\
+        get the error information dictionary self._errDict
+        :return: self._errDict
+        """
+        return self._errDict
+
+    def clear_err_dict(self):
+        """\
+        clear the error information in the dictionary self._errDict
+        :return: None
+        """
+        with self._tpLocker:
+            for err in TemptProtocol.ErrTempt:
+                self._errDict[err] = 0
+
+
+class TemptComThread(QtCore.QThread):
+    finishSignal = QtCore.pyqtSignal(list)
+
+    def __init__(self, parent=None):
+        super(TemptComThread, self).__init__(parent)
+        self._tpDevice = None
+        self._paramToSet = []
+        self._errCnt = False
+        # thread execute mode,
+        # 0: do nothing     1: read param       2: write param
+        # 3: read tpShow    4: read pwShow
+        self._executeMode = 0
+
+    def read_tp_param(self, tp, errCnt=False):
+        """\
+        read parameters from the T-C board
+        :param tp: tp Device object
+        :param errCnt: whether count the error information
+        :return: None
+        """
+        self._tpDevice = tp
+        self._executeMode = 1
+        self._errCnt = errCnt
+        self.start()
+
+    def write_tp_param(self, tp, param, errCnt=False):
+        """\
+        write parameters to the T-C board
+        :param tp: tp Device object
+        :param param: the parameter values gonna write to the T-C board
+        :param errCnt: whether count the error information
+        :return: None
+        """
+        self._tpDevice = tp
+        self._executeMode = 2
+        self._errCnt = errCnt
+        #
+        if len(param) != 7:
+            self.finishSignal.emit([TemptProtocol.ErrTempt.CodeError])
+            return
+        self._paramToSet = param
+        self.start()
+
+    def read_tp_show(self, tp, errCnt=False):
+        """\
+        read temperature show value from the T-C board
+        :param tp: tp Device object
+        :param errCnt: whether count the error information
+        :return: None
+        """
+        self._tpDevice = tp
+        self._executeMode = 3
+        self._errCnt = errCnt
+        self.start()
+
+    def read_pw_show(self, tp, errCnt=False):
+        """
+        read the power show value from the T-C board
+        :param tp: tp Device object
+        :param errCnt: whether count the error information
+        :return: None
+        """
+        self._tpDevice = tp
+        self._executeMode = 4
+        self._errCnt = errCnt
+        self.start()
+
+    def run(self):
+        # read parameters form the T-C board
+        if self._executeMode == 1:
+            err, param = self._tpDevice.updateparamfromdevice(self._errCnt)
+            self.finishSignal.emit([err, param])
+        # write the parameters to the T-C board
+        elif self._executeMode == 2:
+            err = self._tpDevice.updateparamtodevice(self._paramToSet, self._errCnt)
+            self.finishSignal.emit([err])
+        # read the temperatures
+        elif self._executeMode == 3:
+            err, val = self.gettempshow(self._errCnt)
+            self.finishSignal.emit([err, val])
+        # read the power value
+        elif self._executeMode == 4:
+            err, val = self.getpowershow(self._errCnt)
+            self.finishSignal.emit([err, val])
+        else:
+            pass
+
 
 if __name__ == '__main__':
-    val = [1, 2, 3]
-    print(val[-2:])
+    pass

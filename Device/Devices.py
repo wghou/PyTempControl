@@ -3,7 +3,6 @@
 
 import threading
 import time
-from enum import Enum, unique
 from PyQt5 import QtCore
 from transitions import Machine
 from Utils.TypeAssert import typeassert
@@ -20,14 +19,32 @@ class Devices(object):
                 'startControl', 'achieveSteady', 'startMeasure',
                 'suspendAutoControl', 'finishAll', 'forceStop', 'uindefinedOccur']
 
+    # when auto control, the control flow enter a new state
+    # emit([stateName])
+    controlStateChangedSignal = QtCore.pyqtSignal(list)
+    # when auto control, the relay device status changed
+    # emit([err, st])
+    ryStatusUpdateSignal = QtCore.pyqtSignal(list)
+    # when the temperature parameters are updated into the T-C board
+    # emit(err, param])
+    tpParamUpdateSignal = QtCore.pyqtSignal(list)
+    # in every tick, the temperature and power are updated from the T-C board
+    # emit([errT, tp, errP, p])
+    tpUpdateTickSignal = QtCore.pyqtSignal(list)
+    # check error in every tick
+    tpErrorOccurTickSignal = QtCore.pyqtSignal(list)
+
+    @typeassert(name=str)
     def __init__(self, name):
         # tempt parameters
         # relay device
         self.ryDevice = RelayDevice()
         # temperature control device
         self.tpDevice = TemptDevice()
+        # whether perform auto control
+        self.autoControl = False
         # temperature list
-        self.temptPointList = None
+        self.temptPointList = []
         # current temperature control state
         self.currentTemptPointState = TemptPointStruct()
         # threading lock
@@ -40,18 +57,7 @@ class Devices(object):
         self._machine = None
         self._init_machine()
 
-    @typeassert(cmd=RelayProtocol.CmdRelay, st=bool)
-    def set_rystatus(self, cmd, st):
-        from Device.RelayDevice import RelayComThread
-        self.ryDevice.ryStatusToSet[cmd] = st
-        ryThread = RelayComThread(self.ryDevice)
-        ryThread.finishSignal.connect(self.set_rystatus_end)
-        ryThread.start()
-
-    def set_rystatus_end(self, err):
-        print(err)
-
-
+        self._timer = threading.Timer(self.thrParam.tpUpdateInterval, self._timer_tick, [self.thrParam.tpUpdateInterval])
 
     def _init_machine(self):
         self._machine = Machine(model=self, states=Devices.States, initial=Devices.States[7], ignore_invalid_triggers=True)
@@ -113,6 +119,9 @@ class Devices(object):
         self._machine.add_transition(trigger='nextTemptPoint', source='measure', dest='temptDown',
                                      conditions='_next_point_down')
         self._machine.add_transition(trigger='nextTemptPoint', source='measure', dest='temptUp')
+        self._machine.add_transition(trigger='finishAll', source='measure', dest='stop',
+                                     conditions='_stop_when_finished')
+        self._machine.add_transition(trigger='finishAll', source='measure', dest='idle')
 
         # States.stop
         self._machine.on_enter_stop('_enter_stop')
@@ -121,134 +130,271 @@ class Devices(object):
 
         # suspend the auto control
         self._machine.add_transition(trigger='suspendAutoControl',
-                                     source=['temptUp', 'temptDown', 'control', 'stable', 'measure'],
+                                     source=['start', 'temptUp', 'temptDown', 'control', 'stable', 'measure'],
                                      dest='idle')
 
         # force to stop
         self._machine.add_transition(trigger='forceStop', source='*', dest='stop')
 
-    ###
+    def start_timer(self):
+        self._timer.start()
+
     # States idle
     def _enter_idle(self):
         print('enter the idle state')
-        pass
+        # clear state time count
+        self.currentTemptPointState.stateCount = 0
+        # state change signal
+        self.controlStateChangedSignal.emit(['idle'])
 
     def _exit_idle(self):
         print('exit the idle state')
         pass
 
-    def _idle_tick(self, mSec):
-        print('idle tick: %d' %mSec)
+    def _idle_tick(self, sec):
+        print('idle tick')
+        # if start auto control as well as there tpPoint in the list
+        if self.autoControl is True and len(self.temptPointList) != 0:
+            self._machine.startAutoStep()
         pass
 
-    ###
     # States start
     def _enter_start(self):
         print('enter the start state')
-        pass
+        # clear state time count
+        self.currentTemptPointState.stateCount = 0
+        # state change signal
+        self.controlStateChangedSignal.emit(['start'])
 
     def _exit_start(self):
         print('exit the start state')
         pass
 
-    def _start_tick(self, mSec):
-        print('start tick: %d' %mSec)
-        pass
+    @typeassert(sec=float)
+    def _start_tick(self, sec):
+        print('start tick')
+        for pt in self.temptPointList:
+            if pt.finished == False:
+                self.currentTemptPointState = pt
+        # if all the points have been measured
+        # which means the finished of all the point is True
+        # then suspend the auto control and go to idle
+        if self.currentTemptPointState.finished == True:
+            self._machine.suspendAutoControl()
+            return
+
+        # else start the auto control flow
+        if abs(self.currentTemptPointState.stateTemp - self.tpDevice.temperatures[-1]) < self.thrParam.controlTemptThr:
+            self._machine.startControl()
+        else:
+            self._machine.nextTemptPoint()
 
     def _next_point_down(self):
-        return True
+        if self.currentTemptPointState.stateTemp() < self.tpDevice.temperatures[-1]:
+            return True
+        else:
+            return False
 
-    ###
     # States temptUp
     def _enter_temptUp(self):
-        print('enter the temptUp state')
-        pass
+        print('enter tempUp')
+        # update relay status
+        rySt = [False] * 16
+        rySt[RelayProtocol.CmdRelay.Elect] = True
+        rySt[RelayProtocol.CmdRelay.MainHeat] = True
+        rySt[RelayProtocol.CmdRelay.Cool] = False
+        rySt[RelayProtocol.CmdRelay.Circle] = True
+        errR, st = self.ryDevice.updatestatustodevice(rySt, True)
+        self.ryStatusUpdateSignal.emit([errR, st])
+        # update T-C parameters
+        errT = self.tpDevice.updateparamtodevice(self.currentTemptPointState.paramM, True)
+        self.tpParamUpdateSignal.emit(errT, self.currentTemptPointState.paramM)
+        # clear state time count
+        self.currentTemptPointState.stateCount = 0
+        # state change signal
+        self.controlStateChangedSignal.emit(['temptUp'])
 
     def _exit_temptUp(self):
         print('exit the temptUp state')
         pass
 
-    def _temptUp_tick(self, mSec):
-        print('temptUp tick: %d' % mSec)
-        pass
+    @typeassert(sec=float)
+    def _temptUp_tick(self, sec):
+        print('temptUp tick: %d' % sec)
+        # error check
 
+        # judge enter control
+        if self.tpDevice.temperatures[-1] > self.currentTemptPointState.stateTemp() - 0.1:
+            self._machine.startControl()
 
-    ###
     # States temptDown
     def _enter_temptDown(self):
         print('enter the temptDown state')
-        pass
+        # update relay status
+        rySt = [False] * 16
+        rySt[RelayProtocol.CmdRelay.Elect] = True
+        rySt[RelayProtocol.CmdRelay.MainHeat] = False
+        rySt[RelayProtocol.CmdRelay.Cool] = True
+        rySt[RelayProtocol.CmdRelay.Circle] = True
+        errR, st = self.ryDevice.updatestatustodevice(rySt, True)
+        self.ryStatusUpdateSignal.emit([errR, st])
+        # update T-C parameters
+        errT = self.tpDevice.updateparamtodevice(self.currentTemptPointState.paramM, True)
+        self.tpParamUpdateSignal.emit(errT, self.currentTemptPointState.paramM)
+        # clear state time count
+        self.currentTemptPointState.stateCount = 0
+        # state change signal
+        self.controlStateChangedSignal.emit(['temptDown'])
 
     def _exit_temptDown(self):
         print('exit the temptDown state')
         pass
 
-    def _temptDown_tick(self, mSec):
-        print('temptDown tick: %d' % mSec)
-        pass
+    @typeassert(sec=float)
+    def _temptDown_tick(self, sec):
+        print('temptDown tick: %d' % sec)
+        # error check
 
-    ###
+        # judge enter control
+        if self.tpDevice.temperatures[-1] < self.currentTemptPointState.stateTemp() + 0.1:
+            self._machine.startControl()
+
     # States control
     def _enter_control(self):
         print('enter the control state')
-        pass
+        rySt = [False] * 16
+        rySt[RelayProtocol.CmdRelay.Elect] = True
+        rySt[RelayProtocol.CmdRelay.MainHeat] = False
+        rySt[RelayProtocol.CmdRelay.Cool] = True
+        rySt[RelayProtocol.CmdRelay.Circle] = True
+        errR, st = self.ryDevice.updatestatustodevice(rySt, True)
+        self.ryStatusUpdateSignal.emit([errR, st])
+        # clear state time count
+        self.currentTemptPointState.stateCount = 0
+        # state change signal
+        self.controlStateChangedSignal.emit(['control'])
 
     def _exit_control(self):
         print('exit the control state')
         pass
 
-    def _control_tick(self, mSec):
-        print('control tick: %d' % mSec)
-        pass
+    @typeassert(sec=float)
+    def _control_tick(self, sec):
+        print('control tick: %d' % sec)
+        # error check
 
-    ###
+        # if the fluctuation satisfy the criteria, then go to stable
+        if self.tpDevice.check_fluc_cnt(self.thrParam.steadyTimeSec/self.thrParam.tpUpdateInterval,
+                                        self.thrParam.flucValue):
+            self._machine.achieveSteady()
+
     # States stable
     def _enter_stable(self):
         print('enter the stable state')
-        pass
+        rySt = [False] * 16
+        rySt[RelayProtocol.CmdRelay.Elect] = True
+        rySt[RelayProtocol.CmdRelay.MainHeat] = False
+        rySt[RelayProtocol.CmdRelay.Cool] = True
+        rySt[RelayProtocol.CmdRelay.Circle] = True
+        errR, st = self.ryDevice.updatestatustodevice(rySt, True)
+        self.ryStatusUpdateSignal.emit([errR, st])
+        # clear state time count
+        self.currentTemptPointState.stateCount = 0
+        # state change signal
+        self.controlStateChangedSignal.emit(['stable'])
 
     def _exit_stable(self):
         print('exit the stable state')
         pass
 
-    def _stable_tick(self, mSec):
-        print('stable tick: %d' % mSec)
-        pass
+    @typeassert(sec=float)
+    def _stable_tick(self, sec):
+        print('stable tick: %d' % sec)
+        # enter this state more than xx time
+        # then check the fluctuation again
+        if self.currentTemptPointState.stateCount > \
+                self.thrParam.bridgeSteadyTimeSec/self.thrParam.tpUpdateInterval and\
+                self.tpDevice.check_fluc_cnt(self.thrParam.steadyTimeSec /
+                                             self.thrParam.tpUpdateInterval,self.thrParam.flucValue):
+            self._machine.startMeasure()
 
-    ###
     # States measure
     def _enter_measure(self):
         print('enter the measure state')
-        pass
+        # clear state time count
+        self.currentTemptPointState.stateCount = 0
+        # state change signal
+        self.controlStateChangedSignal.emit(['measure'])
 
     def _exit_measure(self):
         print('exit the measure state')
         pass
 
-    def _measure_tick(self, mSec):
-        print('measure tick: %d' % mSec)
-        pass
+    @typeassert(sec=float)
+    def _measure_tick(self, sec):
+        print('measure tick: %d' % sec)
+        # error check
 
-    ###
+        #
+        self.temptPointList[self.currentTemptPointState.temptPointIndex].finished = True
+        # search in the list, and find whether there is still any point which is unfinished
+        for pt in self.temptPointList:
+            if pt.finished == False:
+                self.currentTemptPointState = pt
+
+        # all the point is finished
+        if self.currentTemptPointState.finished == True:
+            self._machine.finishAll()
+        else:
+            self._machine.nextTemptPoint()
+
+    def _stop_when_finished(self):
+        return self.thrParam.shutDownComputer
+
     # States stop
     def _enter_stop(self):
         print('enter the stop state')
-        pass
+        # clear state time count
+        self.currentTemptPointState.stateCount = 0
+        # state change signal
+        self.controlStateChangedSignal.emit(['stop'])
 
     def _exit_stop(self):
         print('exit the stop state')
         pass
 
-    def _stop_tick(self, mSec):
-        print('stop tick: %d' % mSec)
+    @typeassert(sec=float)
+    def _stop_tick(self, sec):
+        print('stop tick: %d' % sec)
         pass
+
+    @typeassert(sec=float)
+    def _timer_tick(self, sec):
+        """
+        device timer tick function
+        :param tm: timer interval
+        :return:
+        """
+        # read temperature and power value
+        errT, valT = self.tpDevice.gettempshow(True)
+        errP, valP = self.tpDevice.getpowershow(True)
+        self.tpUpdateTickSignal.emit([errT, valT, errP, valP])
+        # state count
+        # bug : wghou 20190213 overflow
+        self.currentTemptPointState.stateCount += 1
+        # state transition
+        if __debug__:
+            self._machine.internal(sec)
+            #
+            self._timer = threading.Timer(self.thrParam.tpUpdateInterval, self._timer_tick, [self.thrParam.tpUpdateInterval])
+            self._timer.start()
+        else:
+            self._timer = threading.Timer(self.thrParam.tpUpdateInterval, self._timer_tick, [self.thrParam.tpUpdateInterval])
+            self._timer.start()
+            #
+            self._machine.internal(sec * 1000)
 
 
 if __name__ == '__main__':
     model = Devices('test')
     model.internal(2000)
-    model.startAutoStep()
-    model.internal(2000)
-    model.nextTemptPoint()
-    model.internal(2000)
-    model.startControl()

@@ -17,11 +17,14 @@ class RelayDevice(object):
                          False, False, False, False,
                          False, False, False, False,
                          False, False, False, False]
-        self.ryStatusToSet = [True, False, False, False,
+        self._ryStatusToSet = [True, False, False, False,
                          False, False, False, False,
                          False, False, False, False,
                          False, False, False, False]
         self._ryLocker = threading.Lock()
+        # device error count
+        self._errDict = {}
+        self.clear_err_dict()
 
     @typeassert(portName=str)
     def setdeviceportname(self, portName):
@@ -43,7 +46,8 @@ class RelayDevice(object):
             # return the result
             return confOk
 
-    def updatestatustodevice(self):
+    @typeassert(stToSet=list, errCnt=bool)
+    def updatestatustodevice(self, stToSet, errCnt=False):
         """\
         update the relay status to the relay device
         every time we wanna set relay status, we write the relay status in the ryStatusToSet.
@@ -51,11 +55,15 @@ class RelayDevice(object):
         if different, it means that the relay status need to be update. and the new relay status
         in the ryStatusToSet is written to the relay device. if success, update the relay status
         in the ryStatus
+        :param stToSet: the relay status gonna set
         :return: success of failed
         """
         err = RelayProtocol.ErrRelay.NoError
         # lock
         with self._ryLocker:
+            # copy the status to self._ryStatusToSet[]
+            for i in range(len(stToSet)):
+                self._ryStatusToSet[i] = stToSet[i]
             # for each cmd in the RelayProtocol.CmdRelay, check if the relay status need to be update
             # if the ryStatus[cmd] != ryStatusToSet[cmd], it means that the relay status need to be update
             for cmd in RelayProtocol.CmdRelay:
@@ -67,8 +75,18 @@ class RelayDevice(object):
                     self.ryStatus[cmd] = self.ryStatusToSet[cmd]
                 else:
                     break
+            if errCnt and err != RelayProtocol.ErrRelay.NoError:
+                self._errDict[err] += 1
         # return the err information. success of failed
-        return err
+        return err, self.ryStatus
+
+    def err_dict(self):
+        return self._errDict
+
+    def clear_err_dict(self):
+        with self._ryLocker:
+            for err in RelayProtocol.ErrRelay:
+                self._errDict[err] = 0
 
 
 class RelayComThread(QtCore.QThread):
@@ -77,33 +95,22 @@ class RelayComThread(QtCore.QThread):
     after finish, emit a signal with parameter RelayProtocol.ErrRelay
     """
     # finish signal
-    finishSignal = QtCore.pyqtSignal(RelayProtocol.ErrRelay)
+    finishSignal = QtCore.pyqtSignal(list)
 
-    @typeassert(rydevice=RelayDevice)
-    def __init__(self, rydevice, parent=None):
-        print('init th')
+    def __init__(self, parent=None):
         super(RelayComThread, self).__init__(parent)
-        self._rydevice = rydevice
+        self._rydevice = None
+        self._stToSet = []
+        self._errCnt = False
+
+    def set_ry_status(self, ry, st, errCnt=False):
+        self._rydevice = ry
+        self._stToSet = st
+        self._errCnt = errCnt
+        self.start()
 
     def run(self):
-        print('run')
-        err = RelayProtocol.ErrRelay.NoError
-        err = self._rydevice.updatestatustodevice()
-        self.finishSignal.emit(err)
+        err, ryst = self._rydevice.updatestatustodevice(self._stToSet, self._errCnt)
+        self.finishSignal.emit([err, ryst])
 
 
-# test
-def _set_rystatus_end(self, err):
-    print('end')
-    print(err)
-
-import os
-if __name__ == '__main__':
-    dev = RelayDevice()
-    dev.setdeviceportname('COM0')
-    dev.ryStatusToSet[RelayProtocol.CmdRelay.Circle] = True
-    ryThread = RelayComThread(dev)
-    ryThread.finishSignal.connect(_set_rystatus_end)
-    print('start')
-    ryThread.start()
-    os.system("pause")
