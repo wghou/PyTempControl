@@ -26,8 +26,8 @@ class RelayDevice(object):
         self._errDict = {}
         self.clear_err_dict()
 
-    @typeassert(portname=str)
-    def reset_port_name(self, portname):
+    @typeassert(portname=str, baudrate=int)
+    def reset_port_name(self, portname, baudrate=2400):
         """\
         set the port name and check whether the serial port is available
         :param portName: port name
@@ -36,7 +36,7 @@ class RelayDevice(object):
         # if the serial port is not initialized, then create a new RelayProtocol()
         with self._ryLocker:
             # set the port name and baud rate
-            confOk = self._ryDeviceProtocol.set_port(portname, 9600)
+            confOk = self._ryDeviceProtocol.set_port(portname, baudrate)
             # save the port name if success
             if confOk:
                 self._ryPortName = portname

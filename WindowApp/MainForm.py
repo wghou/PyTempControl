@@ -5,6 +5,8 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtWidgets import QApplication, QWidget, QMainWindow
 from WindowApp.MainWindow import Ui_MainWindow
 from WindowApp.SetForm import SetForm
+from WindowApp.AutoListForm import AutoListForm
+from WindowApp.CurveForm import CurveForm
 from PyQt5.QtCore import *
 from Device.Devices import *
 
@@ -14,24 +16,28 @@ class MainForm(QMainWindow, Ui_MainWindow):
         super(MainForm,self).__init__()
         self.devAll = Devices()
         self.setupUi(self)
-        self.settingForm = SetForm(self.devAll.tpDevice)
-        self.settingForm.setWindowModality(Qt.ApplicationModal)
-        self.pushButton_auto.clicked.connect(self._clicked_auto)
-        self.pushButton_param.clicked.connect(self._clicked_param)
-        self.pushButton_exit.clicked.connect(self._exit_window)
+        self._setForm = SetForm(self.devAll)
+        self._setForm.setWindowModality(Qt.ApplicationModal)
+        self._autoListForm = AutoListForm(self.devAll)
+        self._autoListForm.setWindowModality(Qt.ApplicationModal)
+        self._curveForm = CurveForm(self.devAll)
+
+        self._init_key_board()
 
         #
         self.devAll.tpUpdateTickSignal.connect(self._update_tpshow)
         #
         self._set_device()
 
-    def _clicked_auto(self):
-        pass
-
-    def _clicked_param(self):
-        self.settingForm.show()
+    def _init_key_board(self):
+        self.pushButton_auto.clicked.connect(lambda: self._autoListForm.show())
+        self.pushButton_param.clicked.connect(lambda: self._setForm.show())
+        self.pushButton_curve.clicked.connect(lambda: self._curveForm.show())
+        self.pushButton_exit.clicked.connect(self._exit_window)
 
     def _set_device(self):
+        self.devAll.tpDevice.reset_port_name('COM3', 2400)
+        self.devAll.ryDevice.reset_port_name('COM7', 2400)
         self.devAll.start_timer()
 
     def _exit_window(self):

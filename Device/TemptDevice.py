@@ -27,8 +27,8 @@ class TemptDevice(object):
         self._errDict = {}
         self.clear_err_dict()
 
-    @typeassert(portname=str)
-    def reset_port_name(self, portname):
+    @typeassert(portname=str, baudrate=int)
+    def reset_port_name(self, portname, baudrate=2400):
         """\
         set the port name and check whether the serial port is available
         :param portname: port name
@@ -37,7 +37,7 @@ class TemptDevice(object):
         # if the serial port is not initialized, then create a new RelayProtocol()
         with self._tpLocker:
             # set the port name and baud rate
-            confOk = self._tpDeviceProtocol.set_port(portname, 2400)
+            confOk = self._tpDeviceProtocol.set_port(portname, baudrate)
             # save the port name if success
             if confOk:
                 self._tpPortName = portname
@@ -81,7 +81,7 @@ class TemptDevice(object):
             if len(param) != len(self.tpParamToSet):
                 if errCnt:
                     self._errDict[TemptProtocol.ErrTempt.CodeError] += 1
-                return TemptProtocol.ErrTempt.CodeError
+                return TemptProtocol.ErrTempt.CodeError, self.tpParam
             # copy the param to tpParamToSet
             self.tpParamToSet = param
             for cmd in TemptProtocol.CmdTempt:
@@ -97,7 +97,7 @@ class TemptDevice(object):
                 # count the error information
                 if errCnt and err != TemptProtocol.ErrTempt.NoError:
                     self._errDict[err] += 1
-        return err
+        return err, self.tpParam
 
     def update_param_from_device(self, errCnt=False):
         """\
@@ -112,6 +112,7 @@ class TemptDevice(object):
                 if cmd == TemptProtocol.CmdTempt.PowerShow or cmd == TemptProtocol.CmdTempt.TempShow:
                     continue
                 err, val = self._tpDeviceProtocol.read_data(cmd)
+                print(err, val)
                 if err != TemptProtocol.ErrTempt.NoError:
                     break
                 else:
@@ -284,7 +285,7 @@ class TemptComThread(QtCore.QThread):
         self._errCnt = errCnt
         #
         if len(param) != 7:
-            self.finishSignal.emit([TemptProtocol.ErrTempt.CodeError])
+            self.finishSignal.emit([TemptProtocol.ErrTempt.CodeError, param])
             return
         self._paramToSet = param
         self.start()
@@ -320,8 +321,8 @@ class TemptComThread(QtCore.QThread):
             self.finishSignal.emit([err, param])
         # write the parameters to the T-C board
         elif self._executeMode == 2:
-            err = self._tpDevice.update_param_to_device(self._paramToSet, self._errCnt)
-            self.finishSignal.emit([err])
+            err, param = self._tpDevice.update_param_to_device(self._paramToSet, self._errCnt)
+            self.finishSignal.emit([err, param])
         # read the temperatures
         elif self._executeMode == 3:
             err, val = self.get_temptshow(self._errCnt)

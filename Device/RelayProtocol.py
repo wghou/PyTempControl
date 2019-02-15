@@ -51,7 +51,7 @@ class RelayProtocol(object):
         CodeError = 3
 
     @typeassert(portname=str, baudrate=int)
-    def set_port(self, portname, baudrate=9600):
+    def set_port(self, portname, baudrate=2400):
         """\
         reset the port name and baud rate, no matter the serial port is available or unavailable
         :param portname: the port name

@@ -205,7 +205,7 @@ class Devices(QtCore.QObject):
         errR, st = self.ryDevice.updatestatustodevice(rySt, True)
         self.ryStatusUpdateSignal.emit([errR, st])
         # update T-C parameters
-        errT = self.tpDevice.updateparamtodevice(self.currentTemptPointState.paramM, True)
+        errT, prmm = self.tpDevice.update_param_to_device(self.currentTemptPointState.paramM, True)
         self.tpParamUpdateSignal.emit(errT, self.currentTemptPointState.paramM)
         # clear state time count
         self.currentTemptPointState.stateCount = 0
