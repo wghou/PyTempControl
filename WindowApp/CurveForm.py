@@ -20,6 +20,8 @@ class CurveForm(QWidget, Ui_CurveWindow):
         self._curves.move(0, 0)
         self._curves.update_figure()
 
+        self.pushButton_exit.clicked.connect(lambda: self.close())
+
 
 class PlotCanvas(FigureCanvas):
 
